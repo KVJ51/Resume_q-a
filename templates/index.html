@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interview Prep - Voice Edition</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <style>
+        body { background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .chat-box { 
+            height: 400px; 
+            overflow-y: auto; 
+            border: 1px solid #ddd; 
+            background: white; 
+            padding: 20px; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .message { margin-bottom: 15px; padding: 12px; border-radius: 8px; max-width: 80%; }
+        .bot { background-color: #e9ecef; color: #333; float: left; clear: both; }
+        .user { background-color: #0d6efd; color: white; float: right; clear: both; text-align: right; }
+        .listening { animation: pulse 1.5s infinite; color: red; }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container mt-5">
+    <h2 class="text-center mb-4"><i class="fas fa-robot"></i> AI-Powered Interview Coach</h2>
+    
+    <div class="card p-4 mb-4 shadow-sm">
+        <h5>1. Setup Interview Profile</h5>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <input type="file" id="resumeFile" class="form-control" accept=".pdf">
+            </div>
+            <div class="col-md-4">
+                <input type="text" id="jobRole" class="form-control" placeholder="Target Role (e.g., Data Scientist)">
+            </div>
+            <div class="col-md-2">
+                <button onclick="uploadResume()" class="btn btn-success w-100">Start</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card p-4 shadow-sm" id="interviewSection" style="display:none;">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5>2. Mock Interview Session</h5>
+            <span id="status" class="text-muted small">Ready</span>
+        </div>
+        
+        <div id="chatBox" class="chat-box mb-3 clearfix">
+            </div>
+        
+        <div class="input-group">
+            <button onclick="startListening()" id="micBtn" class="btn btn-outline-danger">
+                <i class="fas fa-microphone"></i>
+            </button>
+            
+            <textarea id="userAnswer" class="form-control" placeholder="Type or click mic to speak..." rows="2"></textarea>
+            
+            <button onclick="submitAnswer()" class="btn btn-primary">Submit</button>
+            <button onclick="getQuestion()" class="btn btn-secondary">Next Question</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentQuestion = "";
+
+    // --- VOICE CONFIGURATION ---
+    const synth = window.speechSynthesis;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+
+    // When voice is detected
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById('userAnswer').value = transcript;
+        document.getElementById('status').innerText = "Voice captured!";
+        document.getElementById('micBtn').classList.remove('listening');
+    };
+
+    recognition.onspeechend = () => {
+        recognition.stop();
+        document.getElementById('micBtn').classList.remove('listening');
+        document.getElementById('status').innerText = "Processing...";
+    };
+
+    recognition.onerror = (event) => {
+        document.getElementById('status').innerText = "Error: " + event.error;
+        document.getElementById('micBtn').classList.remove('listening');
+    };
+
+    function startListening() {
+        document.getElementById('status').innerText = "Listening...";
+        document.getElementById('micBtn').classList.add('listening');
+        recognition.start();
+    }
+
+    function speakText(text) {
+        if (synth.speaking) {
+            console.error('speechSynthesis.speaking');
+            return;
+        }
+        if (text !== '') {
+            const utterThis = new SpeechSynthesisUtterance(text);
+            utterThis.onend = function (event) {
+                console.log('SpeechSynthesisUtterance.onend');
+            }
+            utterThis.onerror = function (event) {
+                console.error('SpeechSynthesisUtterance.onerror');
+            }
+            // Select a voice (Optional: default usually works fine)
+            // const voices = synth.getVoices();
+            // utterThis.voice = voices[0]; 
+            synth.speak(utterThis);
+        }
+    }
+
+    // --- BACKEND COMMUNICATION ---
+
+    async function uploadResume() {
+        const fileInput = document.getElementById('resumeFile');
+        if(fileInput.files.length === 0) { alert("Please select a file first."); return; }
+
+        const formData = new FormData();
+        formData.append('resume', fileInput.files[0]);
+
+        const response = await fetch('/upload_resume', { method: 'POST', body: formData });
+        const result = await response.json();
+        
+        if(response.ok) {
+            alert("Resume Uploaded! " + result.message);
+            document.getElementById('interviewSection').style.display = 'block';
+            appendMessage("Hello! I have analyzed your resume. I am ready to interview you.", "bot");
+            speakText("Hello! I have analyzed your resume. I am ready to interview you.");
+        } else {
+            alert("Upload failed.");
+        }
+    }
+
+    async function getQuestion() {
+        const role = document.getElementById('jobRole').value;
+        if(!role) { alert("Please enter a Job Role."); return; }
+
+        appendMessage("Generating question...", "bot");
+        
+        const response = await fetch('/generate_question', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ role: role })
+        });
+        const data = await response.json();
+        currentQuestion = data.question;
+        
+        // Remove "Generating..." placeholder
+        const chatBox = document.getElementById('chatBox');
+        chatBox.removeChild(chatBox.lastChild);
+
+        appendMessage(currentQuestion, "bot");
+        speakText(currentQuestion); // <-- THE AI SPEAKS HERE
+    }
+
+    async function submitAnswer() {
+        const answer = document.getElementById('userAnswer').value;
+        if(!answer) return;
+
+        appendMessage(answer, "user");
+        document.getElementById('userAnswer').value = "";
+        appendMessage("Analyzing your answer...", "bot");
+
+        const response = await fetch('/evaluate_answer', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ question: currentQuestion, answer: answer })
+        });
+        const data = await response.json();
+        
+        const chatBox = document.getElementById('chatBox');
+        chatBox.removeChild(chatBox.lastChild);
+
+        const feedbackText = "Feedback: " + data.feedback;
+        appendMessage(feedbackText, "bot");
+        speakText(data.feedback); // Optional: Have AI read the feedback too
+    }
+
+    function appendMessage(text, sender) {
+        const chatBox = document.getElementById('chatBox');
+        const div = document.createElement('div');
+        div.className = `message ${sender}`;
+        div.innerText = text;
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
